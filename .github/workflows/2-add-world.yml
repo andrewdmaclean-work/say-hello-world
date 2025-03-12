@@ -1,0 +1,102 @@
+name: Initiating Assessment Process...
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - add-world
+
+permissions: write-all
+
+jobs:
+  check-solution:
+    name: Checking User Submission...
+    runs-on: ubuntu-latest
+    outputs:
+      assessment: ${{ steps.check.outputs.assessment }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check Solution
+        id: check
+        uses: andrewdmaclean-work/action-check-file@main
+        with:
+          step: ".github/steps/2-add-world.md"
+          submission: "hello-world.md"
+          solution: ".github/solutions/2-solution-prompt.md"
+          webhook: ${{ vars.WEBHOOK_URL }}
+          accountsid: ${{ vars.ACCOUNT_SID }}
+          authtoken: ${{ secrets.AUTH_TOKEN }}
+  handle-results:
+    name: Leaving Comments for User...
+    runs-on: ubuntu-latest
+    needs: check-solution
+    steps:
+      - name: Handle Solution Result
+        uses: andrewdmaclean-work/action-comment-and-merge@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          assessment: ${{ needs.check-solution.outputs.assessment }}
+          reason: ${{ needs.check-solution.outputs.reason }}
+  evaluate-assessment:
+    name: Checking if Ready to Progress...
+    runs-on: ubuntu-latest
+    needs: check-solution
+    steps:
+      - name: Check Assessment
+        if: needs.check-solution.outputs.assessment == 'correct'
+        run: echo "Your submission is correct. Continue to the next step."
+
+      - name: Fail Assessment
+        if: needs.check-solution.outputs.assessment != 'correct'
+        run: |
+          echo "Your submission is missing something. Please review the comments."
+          exit 1
+  update-step:
+    name: Updating Instructions...
+    runs-on: ubuntu-latest
+    needs: evaluate-assessment
+    if: needs.check-solution.outputs.assessment == 'correct'
+    steps:
+      - name: Prepare a pull request, branch, and file
+        run: |
+          echo "Make sure we are on step 1"
+          if [ "$(cat .github/steps/-step.txt)" != 1 ]
+          then
+            echo "Current step is not 1"
+            exit 0
+          fi
+
+          echo "Make a branch"
+          BRANCH=add-world
+          git checkout -b $BRANCH
+
+          echo "Make a commit"
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+          git add index.md
+          git commit --message="Create add-world branch"
+
+          echo "Push"
+          git push --set-upstream origin $BRANCH
+
+          echo "Restore main"
+          git checkout main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # In README.md, switch step 0 for step 1.
+      - name: Update to step 1
+        uses: skills/action-update-step@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          from_step: 0
+          to_step: 1
+          branch_name: add-world
+          base_branch_name: main 

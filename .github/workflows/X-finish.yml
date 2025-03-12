@@ -1,0 +1,79 @@
+name: Initiating Completion Process...
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+  push:
+    branches:
+      - add-world
+
+permissions: write-all
+
+jobs:
+  check-solution:
+    name: Checking User Submission...
+    runs-on: ubuntu-latest
+    outputs:
+      assessment: ${{ steps.check.outputs.assessment }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check Solution
+        id: check
+        uses: andrewdmaclean-work/action-check-file@main
+        with:
+          step: ".github/steps/2-add-world.md"
+          submission: "hello-world.md"
+          solution: ".github/solutions/2-solution-prompt.md"
+          webhook: ${{ vars.WEBHOOK_URL }}
+          accountsid: ${{ vars.ACCOUNT_SID }}
+          authtoken: ${{ secrets.AUTH_TOKEN }}
+
+  get_current_step:
+    name: Check current step number
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: get_step
+        run: |
+          echo "current_step=$(cat ./.github/steps/-step.txt)" >> $GITHUB_OUTPUT
+    outputs:
+      current_step: ${{ steps.get_step.outputs.current_step }}
+
+  update-readme:
+    name: Update Readme
+    needs: 
+      - get_current_step 
+      - check-solution
+    if: >-
+      ${{ !github.event.repository.is_template
+          && needs.get_current_step.outputs.current_step == 'X' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Let's get all the branches.
+      - name: Update README
+        run: |
+            NAME="${{ github.actor }}"
+            sed -i "s/\X-NAME/$NAME/g" README.md
+            sed -i "s/\X-MESSAGE/${{ needs.check-solution.outputs.reason }}/g" README.md
+      - name: Commit changes
+        run: |
+            git config --local user.name "github-actions[bot]"
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git add README.md
+            git commit -m "Update README with new information"
+            git push
+
+
+  
